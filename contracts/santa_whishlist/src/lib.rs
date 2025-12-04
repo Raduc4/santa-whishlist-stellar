@@ -8,6 +8,7 @@ pub enum DataKey {
     NextId(Address),
     ChristmasDeadline,
     Admin,
+    NaughtyList
 }
 
 #[derive(Clone)]
@@ -34,10 +35,9 @@ pub struct WishFulfilledEvent {
 #[contracterror]
 pub enum ContractError {
   WishNotFound = 1,
-  TooLateToChange = 2
+  TooLateToChange = 2,
+  YouAreNaughty = 3
 }
-
-// ... (imports and structs from above)
 
 #[contract]
 pub struct SeasonalWishlist;
@@ -67,13 +67,25 @@ fn ensure_not_christmas(env: &Env) {
         fail(&env, ContractError::TooLateToChange);
     }
 }
+
+fn check_naughty_list(env: &Env, user: &Address) {
+    // Fetch the list. If it doesn't exist, default to an empty list (everyone is nice!)
+    let naughty_list: Vec<Address> = env.storage().instance()
+        .get(&DataKey::NaughtyList)
+        .unwrap_or(Vec::new(env));
+
+    // The "Check it Twice" logic
+    if naughty_list.contains(user) {
+        // Stop execution immediately
+        fail(env, ContractError::YouAreNaughty);
+    }
+}
 #[contractimpl]
 impl SeasonalWishlist {
-    /// The Constructor: Runs once on deployment.
-    /// Sets the "Santa" (Admin) of the contract.
-    pub fn __constructor(env: Env, admin: Address, christmas_deadline: u64) {
+    pub fn __constructor(env: Env, admin: Address, christmas_deadline: u64, naughty_list: Vec<Address>) {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::ChristmasDeadline, &christmas_deadline);
+        env.storage().instance().set(&DataKey::NaughtyList, &naughty_list);
     }
 
     pub fn set_christmas_deadline(env: &Env, christmas_deadline: u64) {
@@ -88,6 +100,8 @@ impl SeasonalWishlist {
         ensure_not_christmas(&env);
         // AUTH: Ensure the transaction signer is actually the user
         user.require_auth();
+
+        check_naughty_list(&env, &user);
 
         // 1. Generate ID
         let id_key = DataKey::NextId(user.clone());
